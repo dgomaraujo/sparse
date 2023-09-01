@@ -1,0 +1,220 @@
+---
+title: "Tarea del módulo: Modelos Sparse y Regresión Penalizada"
+subtitle: "Master in Data Science & Bussines Analytics with R" 
+author: "Daniel Silva Gomes de Araújo."
+date: "30/03/2023"
+output: pdf_document 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval=TRUE, message = FALSE)
+```
+
+## Conjunto de datos de trabajo
+
+Los datos a utilizar corresponden al dataset **Boston** del paquete *ISLR2*. El dataset contiene datos sobre la tasa de criminalidad per cápita de 506 barrios de Boston, junto con 12 variables explicativas:
+
+* `crim`: Tasa de criminalidad per cápita en cada barrio.
+* `zn`: proporción de suelo residencial dividio en lotes de más de 25,000 pies cuadrados.
+* `indus`: proporción de acres comerciales no minoristas por barrio.
+* `chas`: Variable categórica, (= 1 si el barrio limita con el río Charles; 0 en caso contrario).
+* `nox`: concentración de óxido de nitrógeno (partes por 10 millones).
+* `rm`: número medio de habitaciones por vivienda.
+* `age`: proporción de viviendas ocupadas por sus propietarios construidas antes de 1940.
+* `dis`: media ponderada de las distancias a cinco centros de empleo de Boston
+* `rad`: índice de accesibilidad a carreteras radiales
+* `tax`: tasa de impuesto a la propiedad de valor total por  10,000\$
+* `ptratio`: ratio alumno/profesor
+* `medv`: Valor mediano de viviendas ocupadas por sus propietarios (en miles de dólares)
+
+
+El objetivo es predecir ta tasa de criminalidad (variable respuesta) a partir de las otras variables predictoras (usa solo las variables predictoras continuas). Para ello, lo primero que hay que hacer es dividir los datos en una muestra de entrenamiento y otra de testeo, para ello utiliza este código para seleccionar las filas del conjunto de datos que formarán parte de la muestra de entrenamiento y testeo.
+
+```{r }
+library(ISLR2)
+library(tidymodels)
+data(Boston, package = "ISLR2")
+str(Boston)
+
+# formula = crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv
+
+# División estratificada de datos entre 70% training y 30% test
+set.seed(123456)
+split <- initial_split(Boston, prop = 0.7, strata = crim)
+Boston_train <- training(split)
+Boston_test <- testing(split)
+```
+
+## Pregunta 1
+
+Ajusta un modelo de mínimos cuadrados con todas las variables a la muestra de entrenamiento e indica cual es el error de predicción en la muestra de testeo
+
+```{r }
+library(ISLR2)
+library(tidymodels)
+data(Boston, package = "ISLR2")
+str(Boston)
+
+# División estratificada de datos entre 70% training y 30% test
+set.seed(123456)
+split <- initial_split(Boston, prop = 0.7, strata = crim)
+Boston_train <- training(split)
+Boston_test <- testing(split)
+
+# Residual Sum of Squares - muestra de entrenamiento
+model_train <- lm(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, data = Boston_train)
+deviance(model_train)
+
+# Residual Sum of Squares - muestra de testeo
+model_test <- lm(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, data = Boston_test)
+deviance(model_test)
+```
+
+## Pregunta 2
+
+Utiliza el método del mejor subconjunto para elegir el mejor modelo desde el punto de vista del $R^2$ ajustado en la muestra de entrenamiento e indica cual es el error de predicción (con el modelo elegido) en la muestra de testeo.
+
+```{r }
+library(leaps)
+regfit.full <- regsubsets(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, Boston)
+summary(regfit.full)
+
+regfit.full <- regsubsets(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, data = Boston_train,
+    nvmax = 11)
+reg.summary <- summary(regfit.full)
+names(reg.summary)
+reg.summary$adjr2
+
+plot(reg.summary$rss, xlab = "Número de variables",
+    ylab = "RSS", type = "l")
+plot(reg.summary$adjr2, xlab = "Número de variables",
+    ylab = "R2 ajustado", type = "l")
+which.max(reg.summary$adjr2)
+
+# El mejor modelo es con 9 variables.
+
+plot(regfit.full, scale = "adjr2")
+coef(regfit.full, 9)
+```
+
+## Pregunta 3
+
+Utiliza el método stepwise forward y backward para elegir el mejor modelo desde el punto de vista del $R^2$ ajustado en la muestra de entrenamiento. Son los dos modelos iguales?.  Indica cual es el error de predicción (con el modelo elegido) en la muestra de testeo.
+
+```{r }
+regfit.fwd <- regsubsets(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, data = Boston_test,
+    nvmax = 9, method = "forward")
+summary(regfit.fwd)
+
+regfit.bwd <- regsubsets(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, data = Boston_test,
+    nvmax = 9, method = "backward")
+summary(regfit.bwd)
+
+coef(regfit.full, 2)
+coef(regfit.fwd, 2)
+coef(regfit.bwd, 2)
+
+which.max(summary(regfit.fwd)$adjr2)
+which.max(summary(regfit.bwd)$adjr2)
+# Los dos modelos no son iguales.
+# Forward: el mejor modelo es el que tiene 7 variables
+# Backward: el mejor modelo es el que tiene 6 variables
+
+set.seed(1)
+entreno <- sample(c(TRUE, FALSE), nrow(Boston_test),
+    replace = TRUE)
+test <- (!entreno)
+
+regfit.best <- regsubsets(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv,
+    data = Boston_test[entreno, ], nvmax = 9)
+
+test.mat <- model.matrix(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, data = Boston_test[test, ])
+
+val.errors <- rep(NA, 9)
+for (i in 1:9) {
+ coefi <- coef(regfit.best, id = i)
+ pred <- test.mat[, names(coefi)] %*% coefi
+ val.errors[i] <- mean((Boston_test$crim[test] - pred)^2)
+}
+
+val.errors
+which.min(val.errors)
+coef(regfit.best, 5)
+```
+
+## Pregunta 4
+Ajusta un modelo de regresión ridge en la muestra de entrenamiento, con $\lambda$ elegido mediante validación cruzada. Calcula el error de predicción en la muestra de testeo.
+
+```{r }
+library(glmnet)
+x <- model.matrix(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, Boston)[, -1]
+y <- Boston$crim
+y.test <- y[test]
+
+## entreno/test
+set.seed(1)
+entreno <- sample(1:nrow(Boston_train), nrow(Boston_train) / 2)
+test <- (-entreno)
+
+## mejor lambda
+set.seed(1)
+cv.out <- cv.glmnet(x[entreno, ], y[entreno], alpha = 0)
+plot(cv.out)
+mejorlam <- cv.out$lambda.min
+mejorlam
+
+## modelo de regresión ridge
+x <- model.matrix(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, Boston_train)[, -1]
+y <- Boston_train$crim
+ridge.mod <- glmnet(x, y, alpha = 0, lambda = mejorlam)
+```
+
+## Pregunta 5
+Ajusta un modelo de regresión lasso en la muestra de entrenamiento, con $\lambda$ elegido mediante validación cruzada. Calcula el error de predicción en la muestra de testeo. ¿Cuántos coeficientes se han hecho cero?
+
+```{r }
+library(glmnet)
+grid <- 10^seq(10, -2, length = 100)
+x <- model.matrix(crim ~ zn + indus + nox + rm + age + dis + rad + tax + ptratio + lstat + medv, Boston_train)[, -1]
+y <- Boston_train$crim
+
+## entreno/test
+set.seed(1)
+entreno <- sample(1:nrow(Boston_train), nrow(Boston_train) / 2)
+test <- (-entreno)
+
+# lasso
+lasso.mod <- glmnet(x[entreno, ], y[entreno], alpha = 1,
+    lambda = grid)
+plot(lasso.mod)
+
+set.seed(1)
+cv.out <- cv.glmnet(x[entreno, ], y[entreno], alpha = 1)
+plot(cv.out)
+
+mejorlab <- cv.out$lambda.min
+lasso.pred <- predict(lasso.mod, s = mejorlab,
+    newx = x[test, ])
+
+out <- glmnet(x, y, alpha = 1)
+```
+
+## Pregunta 6
+Ajusta un modelo elastic-net en la muestra de entrenamiento, con $\lambda$ y $\alpha$ elegidos mediante validación cruzada. Calcula el error de predicción en la muestra de testeo. ¿Cuántos coeficientes se han echo cero?
+
+```{r }
+```
+
+## Pregunta 7
+
+¿Qué método da lugar a un menor error de predicción?. ¿Cón qué método te quedarías?,¿por qué?
+
+```{r }
+```
+
+# Fin
+
+**Este es el final de la tarea.  
+Sube el archivo .Rmd y el informe (en .pdf) generado a la "tarea" de moodle.
+Recuerde que el profesor comprobará la reproducibilidad del fichero .Rmd.**
+
